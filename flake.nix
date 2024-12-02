@@ -24,7 +24,7 @@
       devShell = with pkgs;
         mkShell rec {
           buildInputs = [
-            rust-bin.stable.latest.default
+            rust-bin.nightly.latest.default
             rust-analyzer
           ];
           RUST_SRC_PATH = rustPlatform.rustLibSrc;
