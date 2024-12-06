@@ -80,7 +80,6 @@ fn main() -> std::io::Result<()> {
                     let sym = (*xa - p.0, *ya - p.1);
                     let letter_sym = grid[sym.1 as usize][sym.0 as usize];
 
-
                     (letter == 'S' && letter_sym == 'M') || (letter == 'M' && letter_sym == 'S')
                 })
                 .count()
