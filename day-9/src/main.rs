@@ -16,7 +16,6 @@ fn main() -> std::io::Result<()> {
         })
         .unwrap();
 
-
     let p1 = files
         .iter()
         .flat_map(|(id, size)| (0..*size).map(|_| if *id % 2 == 0 { Some(*id / 2) } else { None }))
@@ -51,26 +50,15 @@ fn main() -> std::io::Result<()> {
                 return acc;
             }
 
-            // print!("considering: {} with size {} -> ", last_id / 2, size);
-            // print_fs(&acc);
-
             match acc.iter().position(|e| *last_id == e.0) {
                 Some(fs_pos) => {
                     let (next_file, size_to_fill) = acc[fs_pos];
-                    // println!("Foudn my pos: {:?}", (next_file / 2, size_to_fill));
 
                     match acc.iter().enumerate().position(|(c, (fid, fsize))| {
                         fid % 2 == 1 && *fsize >= size_to_fill && c < fs_pos
                     }) {
                         Some(insert_pos) => {
-                            // println!(
-                            //     "Placing {:?} at pos! {}",
-                            //     (next_file / 2, size_to_fill),
-                            //     insert_pos
-                            // );
-
                             assert!(insert_pos < fs_pos);
-
                             assert!(acc[insert_pos].0 % 2 == 1);
 
                             let tmp = acc[insert_pos];
@@ -85,10 +73,7 @@ fn main() -> std::io::Result<()> {
 
                             acc
                         }
-                        None => {
-                            // println!("Could not be placed anywhere: {}", last_id / 2);
-                            acc
-                        }
+                        None => acc,
                     }
                 }
                 None => acc,
@@ -99,13 +84,7 @@ fn main() -> std::io::Result<()> {
         .iter()
         .flat_map(|(id, size)| (0..*size).map(move |_| id))
         .enumerate()
-        .map(|(pos, id)| {
-            if id % 2 == 0 {
-                pos * id / 2
-            } else {
-                0
-            }
-        })
+        .map(|(pos, id)| if id % 2 == 0 { pos * id / 2 } else { 0 })
         .sum::<usize>();
 
     println!("p2: {p2:?}");
