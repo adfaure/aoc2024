@@ -7,7 +7,6 @@ fn ndigit(n: &u64) -> u64 {
 }
 
 fn recurse(rock: &u64, r: usize, memo: &mut HashMap<(u64, usize), u64>) -> u64 {
-    // println!("{rock} {r}");
     if memo.contains_key(&(*rock, r)) {
         return *memo.get(&(*rock, r)).unwrap();
     }
@@ -72,7 +71,7 @@ fn main() -> std::io::Result<()> {
         .map(|rock| recurse(rock, iters, &mut memo))
         .sum::<u64>();
 
-    println!("p2: {:?}", blinks);
+    println!("p2 for ({iters} blinks): {:?}", blinks);
 
     Ok(())
 }
