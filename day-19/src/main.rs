@@ -1,7 +1,8 @@
 #![feature(iter_array_chunks)]
 use itertools::Itertools;
-use std::fs::File;
 use rayon::prelude::*;
+use std::collections::HashMap;
+use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 fn main() -> std::io::Result<()> {
@@ -18,24 +19,48 @@ fn main() -> std::io::Result<()> {
         .map(|line| line.unwrap().chars().collect_vec())
         .collect_vec();
 
-    println!("towels: {:?}\npatterns: {:?}", towels, patterns);
-    let p1 = patterns
+    println!("towels: {:?}\npatterns: \n{:?}", towels, patterns);
+
+    // let p1 = patterns
+    //     .iter()
+    //     .map(|p| (p, patternize_p2(&towels, p)))
+    //     .inspect(|e| println!("{e:?}"))
+    //     .filter(|(_, b)| *b > 0)
+    //     .count();
+    // println!("p1: {}", p
+
+    let max_towel_size = towels
         .iter()
-        .map(|p| (p, patternize(&towels, p)))
-        .inspect(|e| println!("{e:?}"))
-        .filter(|(_, b)| *b)
-        .count();
-    println!("p1: {}", p1);
+        .max_by(|a, b| a.len().cmp(&b.len()))
+        .unwrap()
+        .len();
+
+    let patternized_pattern = towels
+        .iter()
+        .map(|p| {
+            (
+                p.clone(),
+                patternize_rec_p2_no_cache(&towels, p, max_towel_size, 0, vec![]),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
+    println!(
+        "patternized pattern: \n{}\n---------------\n",
+        patternized_pattern
+            .iter()
+            .map(|e| format!("{e:?}"))
+            .join("\n")
+    );
 
     let p2 = patterns
-        .par_iter()
+        .iter()
         .map(|p| (p, patternize_p2(&towels, p)))
-        .inspect(|e| println!("{e:?}"))
+        // .inspect(|e| println!("{e:?}"))
         .map(|p_s| p_s.1)
         .sum::<usize>();
 
     println!("p2: {}", p2);
-
 
     Ok(())
 }
@@ -47,118 +72,226 @@ fn patternize_p2(towels: &[Vec<char>], pattern: &[char]) -> usize {
         .unwrap()
         .len();
 
-    patternize_rec_p2(towels, pattern, max_towel_size, 0, vec![])
-}
-
-fn patternize(towels: &[Vec<char>], pattern: &[char]) -> bool {
-    // println!("patternize: {pattern:?}");
-    let max_towel_size = towels
+    let patternized_pattern = towels
         .iter()
-        .max_by(|a, b| a.len().cmp(&b.len()))
-        .unwrap()
-        .len();
+        .map(|p| {
+            (
+                p.clone(),
+                patternize_rec_p2_no_cache(towels, p, max_towel_size, 0, vec![]),
+            )
+        })
+        .collect::<HashMap<_, _>>();
 
-    patternize_rec(towels, pattern, max_towel_size, 0, vec![])
+    // println!(
+    //     "patternized pattern: {}",
+    //     patternized_pattern
+    //         .iter()
+    //         .map(|e| format!("{e:?}"))
+    //         .join("\n")
+    // );
+
+    patternize_rec_p2(towels, pattern, max_towel_size, &mut HashMap::new())
 }
 
 fn patternize_rec_p2(
     towels: &[Vec<char>],
     pattern: &[char],
     max_towel_size: usize,
-    pos: usize,
-    acc: Vec<char>,
+    memo: &mut HashMap<Vec<char>, usize>,
 ) -> usize {
-    // println!(
-    //     "New recursion: pos: {pos}, pattern len: {} acc: {acc:?}",
-    //     pattern.len()
-    // );
-
-    if acc == pattern {
-        return 1
+    if let Some(res) = memo.get(pattern) {
+        return *res;
     }
 
-    if pos == pattern.len() {
-        // println!("reached the end: {acc:?}");
-        return 0
+    if pattern.is_empty() {
+        return 1;
     }
 
-    (1..=max_towel_size).map(|size| {
-        let extract = pattern.iter().skip(pos).take(size);
-        // println!("extract: {:?}", extract.clone().collect_vec());
+    let sum = (1..=max_towel_size)
+        .rev()
+        .filter_map(|size| {
+            let matching_towel = towels
+                .iter()
+                .filter(|towel| towel.len() == size)
+                .find(|towel| {
+                    pattern
+                        .iter()
+                        .zip(towel.iter())
+                        .take_while(|(l, r)| l == r)
+                        .count()
+                        == towel.len()
+                });
 
-        let matching_towel = towels.iter().filter(|towel| towel.len() == size).find(|towel| {
-            // println!("towel: {:?}", towel);
-            extract
-                .clone()
-                .zip(towel.iter())
-                .take_while(|(l, r)| l == r)
-                .count()
-                == towel.len()
-        });
+            if let Some(towel) = matching_towel {
+                let res = patternize_rec_p2(
+                    towels,
+                    &pattern.iter().skip(towel.len()).cloned().collect_vec(),
+                    max_towel_size,
+                    memo,
+                );
 
-        // println!("Found match: {:?}", matching_towel);
+                if res == 0 {
+                    None
+                } else {
+                    Some(res)
+                }
+            } else {
+                None
+            }
+        })
+        .sum();
 
-        if let Some(towel) = matching_towel {
-            let mut acc_ = acc.clone();
-            acc_.extend(towel);
-            let res = patternize_rec_p2(towels, pattern, max_towel_size, pos + towel.len(), acc_);
-            // println!("res: {}", res);
-            res
-
-        } else {
-            // println!("leaving the life");
-            0
-        }
-    }).sum()
+    memo.insert(pattern.clone().to_vec(), sum);
+    sum
 }
 
-fn patternize_rec(
+// fn patternize_rec_p2_no_cache(
+//     towels: &[Vec<char>],
+//     pattern: &[char],
+//     max_towel_size: usize,
+//     pos: usize,
+//     acc: Vec<char>,
+// ) -> usize {
+//     if acc == pattern {
+//         return 1;
+//     }
+//
+//     if pos == pattern.len() {
+//         return 0;
+//     }
+//
+//     (1..=max_towel_size)
+//         .rev()
+//         .map(|size| {
+//             let extract = pattern.iter().skip(pos).take(size);
+//
+//             let matching_towel = towels
+//                 .iter()
+//                 .filter(|towel| towel.len() == size)
+//                 .find(|towel| {
+//                     extract
+//                         .clone()
+//                         .zip(towel.iter())
+//                         .take_while(|(l, r)| l == r)
+//                         .count()
+//                         == towel.len()
+//                 });
+//
+//             if let Some(towel) = matching_towel {
+//                 let mut acc_ = acc.clone();
+//                 acc_.extend(towel);
+//                 patternize_rec_p2_no_cache(towels, pattern, max_towel_size, pos + towel.len(), acc_)
+//             } else {
+//                 0
+//             }
+//         })
+//         .sum()
+// }
+// fn patternize_rec_p2(
+//     towels: &[Vec<char>],
+//     pattern: &[char],
+//     max_towel_size: usize,
+//     towel_scores: &HashMap<Vec<char>, usize>,
+//     pos: usize,
+//     acc: Vec<char>,
+//     towels_set: Vec<Vec<char>>,
+// ) -> usize {
+//     println!("{pos} {acc:?}");
+//     if acc == pattern {
+//         println!("towel set: {:?}", towels_set);
+//         for towel in towels_set {
+//             println!("towel: {} == {:?}", towel_scores.get(&towel).unwrap(), towel);
+//         }
+//         return 1;
+//     }
+//
+//     if pos == pattern.len() {
+//         return 0;
+//     }
+//
+//     (1..=max_towel_size)
+//         .rev()
+//         .filter_map(|size| {
+//             let extract = pattern.iter().skip(pos).take(size);
+//
+//             let matching_towel = towels
+//                 .iter()
+//                 .filter(|towel| towel.len() == size)
+//                 .find(|towel| {
+//                     extract
+//                         .clone()
+//                         .zip(towel.iter())
+//                         .take_while(|(l, r)| l == r)
+//                         .count()
+//                         == towel.len()
+//                 });
+//
+//             if let Some(towel) = matching_towel {
+//                 let mut acc_ = acc.clone();
+//                 let mut new_set = towels_set.clone();
+//                 new_set.push(towel.clone());
+//
+//                 acc_.extend(towel);
+//                 let res = patternize_rec_p2(
+//                     towels,
+//                     pattern,
+//                     max_towel_size,
+//                     towel_scores,
+//                     pos + towel.len(),
+//                     acc_,
+//                     new_set
+//                 );
+//                 if res == 0 {
+//                     None
+//                 } else {
+//                     Some(res)
+//                 }
+//             } else {
+//                 None
+//             }
+//         })
+//         .sum()
+// }
+//
+fn patternize_rec_p2_no_cache(
     towels: &[Vec<char>],
     pattern: &[char],
     max_towel_size: usize,
     pos: usize,
     acc: Vec<char>,
-) -> bool {
-    // println!(
-    //     "New recursion: pos: {pos}, pattern len: {} acc: {acc:?}",
-    //     pattern.len()
-    // );
-
+) -> usize {
     if acc == pattern {
-        return true;
+        return 1;
     }
 
     if pos == pattern.len() {
-        // println!("reached the end: {acc:?}");
-        return false;
+        return 0;
     }
 
-    (1..=max_towel_size).any(|size| {
-        let extract = pattern.iter().skip(pos).take(size);
-        // println!("extract: {:?}", extract.clone().collect_vec());
+    (1..=max_towel_size)
+        .rev()
+        .map(|size| {
+            let extract = pattern.iter().skip(pos).take(size);
 
-        let matching_towel = towels.iter().filter(|towel| towel.len() == size).find(|towel| {
-            // println!("towel: {:?}", towel);
-            extract
-                .clone()
-                .zip(towel.iter())
-                .take_while(|(l, r)| l == r)
-                .count()
-                == towel.len()
-        });
+            let matching_towel = towels
+                .iter()
+                .filter(|towel| towel.len() == size)
+                .find(|towel| {
+                    extract
+                        .clone()
+                        .zip(towel.iter())
+                        .take_while(|(l, r)| l == r)
+                        .count()
+                        == towel.len()
+                });
 
-        // println!("Found match: {:?}", matching_towel);
-
-        if let Some(towel) = matching_towel {
-            let mut acc_ = acc.clone();
-            acc_.extend(towel);
-            let res = patternize_rec(towels, pattern, max_towel_size, pos + towel.len(), acc_);
-            // println!("res: {}", res);
-            res
-
-        } else {
-            // println!("leaving the life");
-            false
-        }
-    })
+            if let Some(towel) = matching_towel {
+                let mut acc_ = acc.clone();
+                acc_.extend(towel);
+                patternize_rec_p2_no_cache(towels, pattern, max_towel_size, pos + towel.len(), acc_)
+            } else {
+                0
+            }
+        })
+        .sum()
 }
