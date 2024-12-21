@@ -7,6 +7,7 @@ use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader};
 use std::iter::once;
+use std::iter::repeat;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 struct State {
@@ -165,24 +166,16 @@ fn main() -> std::io::Result<()> {
         vec!['.', '0', 'A'],
     ];
 
-    let robots = [
-        // Robot {
-        //     state: 'A',
-        //     panel: arrow_keypad.clone(),
-        // },
-        Robot {
-            state: 'A',
-            panel: arrow_keypad.clone(),
-        },
-        Robot {
-            state: 'A',
-            panel: arrow_keypad.clone(),
-        },
-        Robot {
-            state: 'A',
-            panel: digits_keypad.clone(),
-        },
-    ];
+    // Create a single prototype robot
+    let prototype_robot = Robot {
+        state: 'A',
+        panel: arrow_keypad.clone(),
+    };
+
+    let robots = std::iter::repeat(prototype_robot).take(25).chain(once(Robot {
+        state: 'A',
+        panel: digits_keypad
+    })).collect_vec();
 
     let p1 = codes
         .iter()
@@ -261,11 +254,9 @@ fn robots_solve(robots: &[Robot], goal: &[char]) -> Vec<char> {
         robots: robots.to_vec(),
     };
 
-    let mut guard: HashMap<Vec<char>, usize> = HashMap::new();
-
     heap.push(init);
     while let Some(state) = heap.pop() {
-        println!("cost: {}", state.cost);
+        // println!("cost: {}", state.cost);
         if !goal.starts_with(&state.output) {
             continue;
         }
@@ -279,7 +270,7 @@ fn robots_solve(robots: &[Robot], goal: &[char]) -> Vec<char> {
         // guard.insert(state.output.clone(), state.cost);
 
         if !state.output.is_empty() {
-            println!("code typed: {:?}", state.output);
+            // println!("code typed: {:?}", state.output);
         }
 
         if state.output == goal {
@@ -297,7 +288,7 @@ fn robots_solve(robots: &[Robot], goal: &[char]) -> Vec<char> {
                 let (new_robots, actions, output) =
                     propagate_action(&state.robots, 0, input, vec![], None);
 
-                println!("result: {:?}", new_robots);
+                // println!("result: {:?}", new_robots);
                 // println!("result: {:?}", actions);
                 let mut new_composed = state.composed.clone();
                 // new_composed.extend(actions);
