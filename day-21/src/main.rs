@@ -7,7 +7,6 @@ use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader};
 use std::iter::once;
-use std::iter::repeat;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 struct State {
@@ -48,7 +47,14 @@ struct Robot {
 
 impl fmt::Debug for Robot {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Robot").field("state", &self.state).finish() // Do not include the panel field
+        let kind = if self.panel.get(0).and_then(|row| row.get(0)) == Some(&'7') {
+            "Numpad"
+        } else {
+            "Arrowpad"
+        };
+
+        // Write a custom debug format
+        f.write_fmt(format_args!("{}Robot {{ state: {:?} }}", kind, self.state))
     }
 }
 
@@ -67,7 +73,79 @@ impl PartialEq for Robot {
 
 impl Eq for Robot {}
 
+#[derive(Clone, Debug)]
+struct StateRobot {
+    cost: usize,
+    composed: Vec<char>,
+    output: Vec<char>,
+    robots: Vec<Robot>,
+}
+
+// Implement PartialEq and Eq based on `state` only
+impl PartialEq for StateRobot {
+    fn eq(&self, other: &Self) -> bool {
+        self.robots == other.robots
+            && self.composed == other.composed
+            && self.output == other.output
+    }
+}
+
+impl Eq for StateRobot {}
+
+impl Hash for StateRobot {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.robots.hash(state);
+        self.composed.hash(state);
+        self.output.hash(state);
+        // self.cost.hash(state);
+        // Skip hashing `prev`.
+    }
+}
+
+impl Ord for StateRobot {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.cost.cmp(&self.cost)
+        // Im not sure here
+        // .then_with(|| self.output.len().cmp(&other.output.len()))
+        // .then_with(|| other.composed.len().cmp(&self.composed.len()))
+    }
+}
+
+impl PartialOrd for StateRobot {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Robot {
+    pub fn adjacents(&self) -> Vec<(char,char)> {
+        let dims = (self.panel[0].len() as i32, self.panel.len() as i32);
+        let start = self
+            .panel
+            .iter()
+            .enumerate()
+            .find_map(|(y, line)| {
+                line.iter()
+                    .position(|&c| c == self.state)
+                    .map(|x| (x as i32, y as i32))
+            })
+            .unwrap();
+
+        [(0, 1), (0, -1), (1, 0), (-1, 0)]
+            .iter()
+            .filter_map(|dir| {
+                let new_pos = (start.0 + dir.0, start.1 + dir.1);
+                if new_pos.0 >= 0 && new_pos.0 < dims.0 && new_pos.1 >= 0 && new_pos.1 < dims.1 {
+                    let new_state = self.panel[new_pos.1 as usize][new_pos.0 as usize];
+                    if new_state != '.' {
+                        return Some((vec_to_dir(*dir), new_state));
+                    }
+                }
+                None
+            })
+            .collect_vec()
+    }
+
     pub fn move_to(&mut self, dest: &char) -> Vec<char> {
         let sequence = shortest_path(&self.panel, &self.state, dest)
             .first()
@@ -172,78 +250,75 @@ fn main() -> std::io::Result<()> {
         panel: arrow_keypad.clone(),
     };
 
-    let robots = std::iter::repeat(prototype_robot).take(25).chain(once(Robot {
-        state: 'A',
-        panel: digits_keypad
-    })).collect_vec();
+    // let robots = std::iter::repeat(prototype_robot.clone()).take(2).chain(once(Robot {
+    //     state: 'A',
+    //     panel: digits_keypad.clone()
+    // })).collect_vec();
+    //
+    // let p1 = codes
+    //     .iter()
+    //     .map(|code| (code, robots_solve_p2(robots.as_ref(), code)))
+    //     .map(|(code, solution)| {
+    //         let num_code = code
+    //             .iter()
+    //             .take_while(|c| c.is_ascii_digit())
+    //             .collect::<String>()
+    //             .parse::<u32>()
+    //             .unwrap();
 
-    let p1 = codes
+    //         num_code * solution.len() as u32
+    //     })
+    //     .sum::<u32>();
+
+    // println!("p1: {}", p1);
+
+    let robots = std::iter::repeat(prototype_robot.clone())
+        .take(25)
+        .chain(once(Robot {
+            state: 'A',
+            panel: digits_keypad,
+        }))
+        .collect_vec();
+
+    println!("Try recurse");
+    robots_solve_p2(robots.as_ref(), &['0', '2', '9', 'A']);
+    println!("Try recurse");
+
+    let t = ['0', '2', '9', 'A']
         .iter()
-        .map(|code| (code, robots_solve(robots.as_ref(), &code)))
-        .map(|(code, solution)| {
-            let num_code = code
-                .into_iter()
-                .take_while(|c| c.is_ascii_digit())
-                .collect::<String>()
-                .parse::<u32>()
-                .unwrap();
+        .fold((robots.to_vec(), 0), |acc, c| {
+            let (r, l) = robots_solve_p2(&acc.0, &[*c]);
+            (r, acc.1 + l.len())
+        });
 
-            num_code * solution.len() as u32
-        })
-        .sum::<u32>();
+    println!("test: {t:?}");
 
-    println!("p1: {}", p1);
+    // let p2 = codes
+    //     .iter()
+    //     .map(|code| (code, robots_solve_p2(robots.as_ref(), code)))
+    //     .map(|(code, solution)| {
+    //         let num_code = code
+    //             .iter()
+    //             .take_while(|c| c.is_ascii_digit())
+    //             .collect::<String>()
+    //             .parse::<u32>()
+    //             .unwrap();
+
+    //         num_code * solution.len() as u32
+    //     })
+    //     .sum::<u32>();
+
+    // println!("p2: {}", p2);
 
     Ok(())
 }
 
-#[derive(Clone, Debug)]
-struct StateRobot {
-    cost: usize,
-    composed: Vec<char>,
-    output: Vec<char>,
-    robots: Vec<Robot>,
-}
-
-// Implement PartialEq and Eq based on `state` only
-impl PartialEq for StateRobot {
-    fn eq(&self, other: &Self) -> bool {
-        self.robots == other.robots
-            && self.composed == other.composed
-            && self.output == other.output
-    }
-}
-
-impl Eq for StateRobot {}
-
-impl Hash for StateRobot {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.robots.hash(state);
-        self.composed.hash(state);
-        self.output.hash(state);
-        // self.cost.hash(state);
-        // Skip hashing `prev`.
-    }
-}
-
-impl Ord for StateRobot {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .cost
-            .cmp(&self.cost)
-            // Im not sure here
-            .then_with(|| self.output.len().cmp(&other.output.len()))
-        // .then_with(|| other.composed.len().cmp(&self.composed.len()))
-    }
-}
-
-impl PartialOrd for StateRobot {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-fn robots_solve(robots: &[Robot], goal: &[char]) -> Vec<char> {
+fn robots_solve_p2(robots: &[Robot], goal: &[char]) -> (Vec<Robot>, Vec<char>) {
+    println!(
+        "Should solve: {:?} with robots: {:?}",
+        goal.clone().into_iter().join(""),
+        robots
+    );
     let mut heap = BinaryHeap::new();
     let mut seen = HashSet::new();
 
@@ -256,18 +331,9 @@ fn robots_solve(robots: &[Robot], goal: &[char]) -> Vec<char> {
 
     heap.push(init);
     while let Some(state) = heap.pop() {
-        // println!("cost: {}", state.cost);
         if !goal.starts_with(&state.output) {
             continue;
         }
-
-        // if let Some(prev_cost) = guard.get(&state.output) {
-        //     if *prev_cost <= state.cost {
-        //         continue;
-        //     }
-        // };
-
-        // guard.insert(state.output.clone(), state.cost);
 
         if !state.output.is_empty() {
             // println!("code typed: {:?}", state.output);
@@ -275,8 +341,8 @@ fn robots_solve(robots: &[Robot], goal: &[char]) -> Vec<char> {
 
         if state.output == goal {
             println!("cost: {}", state.cost);
-            println!("{:?}", state.composed);
-            return state.composed;
+            println!("{:?}", state.composed.clone().into_iter().join(""));
+            return (state.robots, state.composed);
         }
 
         if seen.insert((
@@ -285,7 +351,7 @@ fn robots_solve(robots: &[Robot], goal: &[char]) -> Vec<char> {
             // state.composed.clone()
         )) {
             for input in &['<', '>', 'v', '^', 'A'] {
-                let (new_robots, actions, output) =
+                let (new_robots, _, output) =
                     propagate_action(&state.robots, 0, input, vec![], None);
 
                 // println!("result: {:?}", new_robots);
@@ -300,7 +366,8 @@ fn robots_solve(robots: &[Robot], goal: &[char]) -> Vec<char> {
                 }
 
                 heap.push(StateRobot {
-                    cost: new_composed.len(),
+                    // A bit more A*ish
+                    cost: new_composed.len() + goal.len() - new_output.len(),
                     robots: new_robots,
                     output: new_output,
                     composed: new_composed,
@@ -354,6 +421,18 @@ fn dir_to_vec(dir: &char) -> (i32, i32) {
         '<' => (-1, 0),
         '^' => (0, -1),
         'v' => (0, 1),
+        _ => {
+            unreachable!()
+        }
+    }
+}
+
+fn vec_to_dir(vec: (i32, i32)) -> char {
+    match vec {
+        (1, 0) => '>',
+        (-1, 0) => '<',
+        (0, -1) => '^',
+        (0, 1) => 'v',
         _ => {
             unreachable!()
         }
@@ -512,4 +591,65 @@ fn shortest_path(grid: &[Vec<char>], current_char: &char, target_char: &char) ->
     results
 
     // unreachable!()
+}
+
+fn robots_solve(robots: &[Robot], goal: &[char]) -> Vec<char> {
+    let mut heap = BinaryHeap::new();
+    let mut seen = HashSet::new();
+
+    let init = StateRobot {
+        cost: 0,
+        composed: vec![],
+        output: vec![],
+        robots: robots.to_vec(),
+    };
+
+    heap.push(init);
+    while let Some(state) = heap.pop() {
+        // println!("cost: {}", state.cost);
+        if !goal.starts_with(&state.output) {
+            continue;
+        }
+
+        if !state.output.is_empty() {
+            // println!("code typed: {:?}", state.output);
+        }
+
+        if state.output == goal {
+            println!("cost: {}", state.cost);
+            println!("{:?}", state.composed);
+            return state.composed;
+        }
+
+        if seen.insert((
+            state.robots.clone(),
+            state.output.clone(),
+            // state.composed.clone()
+        )) {
+            for input in &['<', '>', 'v', '^', 'A'] {
+                let (new_robots, _, output) =
+                    propagate_action(&state.robots, 0, input, vec![], None);
+
+                // println!("result: {:?}", new_robots);
+                // println!("result: {:?}", actions);
+                let mut new_composed = state.composed.clone();
+                // new_composed.extend(actions);
+                new_composed.push(*input);
+
+                let mut new_output = state.output.clone();
+                if let Some(out) = output {
+                    new_output.push(out);
+                }
+
+                heap.push(StateRobot {
+                    cost: new_composed.len(),
+                    robots: new_robots,
+                    output: new_output,
+                    composed: new_composed,
+                });
+            }
+        }
+    }
+
+    unreachable!()
 }
