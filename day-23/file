@@ -1,0 +1,3 @@
+links: {("tc", "td"), ("tb", "ka"), ("ta", "ka"), ("cg", "tb"), ("tb", "wq"), ("yn", "aq"), ("wh", "tc"), ("kh", "ub"), ("qp", "ub"), ("yn", "cg"), ("ta", "co"), ("aq", "cg"), ("wh", "td"), ("qp", "kh"), ("de", "co"), ("kh", "tc"), ("vc", "aq"), ("ka", "co"), ("td", "qp"), ("de", "cg")}
+clusters: [{"wh", "kh", "td", "tc", "qp"}, {"aq", "co", "vc", "cg", "ka", "de", "ta", "tb", "yn", "wq"}, {"aq", "yn"}, {"qp", "kh", "ub"}]
+p1: 438
