@@ -272,17 +272,25 @@ fn main() -> std::io::Result<()> {
     // println!("p1: {}", p1);
 
     let robots = std::iter::repeat(prototype_robot.clone())
-        .take(1)
-        // .chain(once(Robot {
-        //     state: 'A',
-        //     panel: digits_keypad,
-        // }))
+        .take(3)
+        .chain(once(Robot {
+            state: 'A',
+            panel: digits_keypad,
+        }))
         .collect_vec();
 
     println!("Try recurse");
-    // let test = robots_solve_p2(robots.as_ref(), &['0', '2', '9', 'A']);
-    let test = robots_solve_p2(robots.as_ref(), &['<']);
-    println!("test: {:?}", test.1.len());
+    let test = robots_solve_p2(robots.as_ref(), &['0', '2', '9', 'A']);
+    let test2 = robots_solve(robots.as_ref(), &['0', '2', '9', 'A']);
+    // let test = robots_solve_p2(robots.as_ref(), &['0']);
+    println!(
+        "test : {} ({}) cost={}\ntest2: {} ({})",
+        test.1.iter().join(""),
+        test.1.len(),
+        test.2,
+        test2.iter().join(""),
+        test2.len()
+    );
     // println!("Try recurse");
 
     // let t = ['0', '2', '9', 'A']
@@ -314,7 +322,7 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-fn robots_solve_p2(init_robots: &[Robot], goal: &[char]) -> (Vec<Robot>, Vec<char>) {
+fn robots_solve_p2(init_robots: &[Robot], goal: &[char]) -> (Vec<Robot>, Vec<char>, usize) {
     println!(
         "Should solve: {:?} with robots: {:?}",
         goal.clone().into_iter().join(""),
@@ -332,9 +340,12 @@ fn robots_solve_p2(init_robots: &[Robot], goal: &[char]) -> (Vec<Robot>, Vec<cha
 
     heap.push(init);
     while let Some(state) = heap.pop() {
-        println!("\tPoped: robots: {:?} composed: {:?}: output: {:?}", state.robots, state.composed, state.output);
+        println!(
+            "\tPoped ({}): robots: {:?} composed: {:?}: output: {:?}",
+            state.cost, state.robots, state.composed, state.output
+        );
         if !goal.starts_with(&state.output) {
-            println!("Ca dégage");
+            println!("\t\tCa dégage");
             continue;
         }
 
@@ -343,9 +354,12 @@ fn robots_solve_p2(init_robots: &[Robot], goal: &[char]) -> (Vec<Robot>, Vec<cha
         }
 
         if state.output == goal {
-            println!("\tFound cost: {}", state.cost);
-            println!("\t{:?}", state.composed.clone().into_iter().join(""));
-            return (state.robots, state.composed);
+            println!("Found cost: {}", state.cost);
+            println!("\tpath: {}", state.composed.clone().into_iter().join(""));
+            let check = robots_solve(init_robots, goal);
+            // assert!(check == state.composed);
+            println!("\tpath: {} <- check p1", check.iter().join(""));
+            return (state.robots, state.composed, state.cost);
         }
 
         if seen.insert((
@@ -353,26 +367,32 @@ fn robots_solve_p2(init_robots: &[Robot], goal: &[char]) -> (Vec<Robot>, Vec<cha
             state.output.clone(),
             // state.composed.clone()
         )) {
-            let last_robot =  state.robots[state.robots.len() - 1].clone();
+            let mut last_robot = state.robots[state.robots.len() - 1].clone();
             let next_inputs = last_robot.adjacents();
 
             println!("\tnext_inputs: {:?}", next_inputs);
 
             for (input, new_state) in next_inputs.into_iter().chain(once(('A', last_robot.state))) {
-                println!("{input} leaing to new state: {new_state}");
                 let mut new_robots = state.robots.to_vec().clone();
 
-                let mut robots_before = new_robots.clone();
-                robots_before.truncate(new_robots.len() - 1);
-
-                let move_cost = if new_robots.len() == 1 {
+                let (new_robots, move_cost) = if new_robots.len() == 1 {
                     // Do nothing if current state is A
                     new_robots[0].move_once(&input);
-                    1 // shortest_path(&robots[0].panel, &robots[0].state, &input.0).len()
+                    (new_robots, 1) // shortest_path(&robots[0].panel, &robots[0].state, &input.0).len()
                 } else {
-                    robots_solve_p2(&robots_before, &[input]).1.len()
+                    let mut robots_before = new_robots.clone();
+                    robots_before.truncate(new_robots.len() - 1);
+                    let mut robot_and_pash_and_cost = robots_solve_p2(&robots_before, &[input]);
+
+                    last_robot.state = new_state;
+                    robot_and_pash_and_cost.0.push(last_robot.clone());
+                    (robot_and_pash_and_cost.0, robot_and_pash_and_cost.2)
                 };
 
+                println!(
+                    "\t\t{input} leading to new state: {new_state} with a cost of {move_cost}"
+                );
+                println!("\t\t\t robots: {:?}", state);
                 let mut new_output = state.output.clone();
                 if input == 'A' {
                     new_output.push(new_state);
@@ -381,13 +401,15 @@ fn robots_solve_p2(init_robots: &[Robot], goal: &[char]) -> (Vec<Robot>, Vec<cha
                 let mut new_composed = state.composed.clone();
                 new_composed.push(input);
 
-                heap.push(StateRobot {
-                    // A bit more A*ish
-                    cost: move_cost,
+                let new_state = StateRobot {
+                    cost: state.cost + move_cost,
                     robots: new_robots,
                     output: new_output,
                     composed: new_composed,
-                });
+                };
+                println!("\t\tPushing: {new_state:?}");
+
+                heap.push(new_state);
             }
 
             continue;
@@ -616,8 +638,8 @@ fn robots_solve(robots: &[Robot], goal: &[char]) -> Vec<char> {
         }
 
         if state.output == goal {
-            println!("cost: {}", state.cost);
-            println!("{:?}", state.composed);
+            // println!("cost: {}", state.cost);
+            // println!("{:?}", state.composed);
             return state.composed;
         }
 
