@@ -5,7 +5,7 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::iter::{repeat, repeat_n};
+use std::iter::{once, repeat, repeat_n};
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]
@@ -33,27 +33,8 @@ impl FromStr for Op {
 struct Gate {
     name: String,
     input_gates: (Option<String>, Option<String>),
-    input: (Option<bool>, Option<bool>),
     op: Op,
     init_state: Option<bool>,
-}
-
-impl Gate {
-    pub fn eval(&self) -> Option<bool> {
-        if let Some(init) = self.init_state {
-            return Some(init);
-        };
-
-        if let (Some(i1), Some(i2)) = self.input {
-            return match self.op {
-                Op::Xor => Some(i1 ^ i2),
-                Op::Or => Some(i1 || i2),
-                Op::And => Some(i1 && i2),
-                _ => None,
-            };
-        }
-        None
-    }
 }
 
 fn main() -> std::io::Result<()> {
@@ -73,7 +54,6 @@ fn main() -> std::io::Result<()> {
                     name: gate.to_string(),
                     op: Op::None,
                     input_gates: (None, None),
-                    input: (None, None),
                     init_state: Some(state == "1"),
                 });
             }
@@ -89,7 +69,6 @@ fn main() -> std::io::Result<()> {
                     name: g3.to_string(),
                     op: Op::from_str(op).unwrap(),
                     input_gates: (Some(g1.to_string()), Some(g2.to_string())),
-                    input: (None, None),
                     init_state: None,
                 });
             }
@@ -101,50 +80,70 @@ fn main() -> std::io::Result<()> {
     for init_gate in &init_gates {
         state.insert(init_gate.name.clone(), init_gate.clone());
     }
-
     for gate in &gates {
         state.insert(gate.name.clone(), gate.clone());
     }
 
-    // Lets find terminal gates
+    // swaps
+    // I found them by looking at the graphs and finding the errors
+    state = swap_gates(state, "z05", "bpf");
+    state = swap_gates(state, "z11", "hcc");
+    state = swap_gates(state, "hqc", "qcw");
+    state = swap_gates(state, "fdw", "z35");
+
+    println!(
+        "p2: {}",
+        ["z05", "bpf", "z11", "hcc", "hqc", "qcw", "fdw", "z35"]
+            .iter()
+            .sorted()
+            .join(",")
+    );
+
+    for i in 0..46 {
+        let state = inject(&state, 2u64.pow(i as u32), 2u64.pow(i as u32));
+        print_state(&state);
+    }
+
     let mut final_gates = state.keys().filter(|k| k.starts_with("z")).collect_vec();
     final_gates.sort();
 
-    // let final_results = final_gates
-    //     .iter()
-    //     .map(|gate| {
-    //         let action_plan = gate_action_plan(&state, state.get(*gate).unwrap());
-    //         // println!(
-    //         //     "plan for {} => {:?}",
-    //         //     gate,
-    //         //     action_plan.iter().map(|g| g.name.clone()).join(",")
-    //         // );
-    //         let new_state = execute_action_plan(state.clone(), &action_plan);
-    //         let res = new_state.get(*gate).unwrap().eval().unwrap();
+    Ok(())
+}
 
-    //         res
-    //     })
-    //     .enumerate()
-    //     .fold(0, |acc, (idx, b)| {
-    //         if b {
-    //             return acc + 2u64.pow(idx as u32);
-    //         }
-    //         acc
-    //     });
+fn inject(state: &HashMap<String, Gate>, x: u64, y: u64) -> HashMap<String, Gate> {
+    let mut result = state.clone();
+    let mut x_gates = state.keys().filter(|k| k.starts_with("x")).collect_vec();
+    x_gates.sort();
+    // x_gates.reverse();
 
-    // println!("p1: {:?}", final_results);
+    let x_vec = to_bool_vec(x, &x_gates.len());
+    for (idx, gate) in x_gates.iter().enumerate() {
+        let g = result.get_mut(*gate).unwrap();
+        g.init_state = Some(x_vec[idx]);
+    }
 
+    let mut y_gates = state.keys().filter(|k| k.starts_with("y")).collect_vec();
+    y_gates.sort();
+    // y_gates.reverse();
+
+    let y_vec = to_bool_vec(y, &y_gates.len());
+    for (idx, gate) in y_gates.iter().enumerate() {
+        let g = result.get_mut(*gate).unwrap();
+        g.init_state = Some(y_vec[idx]);
+    }
+
+    result
+}
+fn print_state(state: &HashMap<String, Gate>) {
     let mut x_bit = vec![];
     let mut y_bit = vec![];
 
-    for init_gate in init_gates {
-        if init_gate.name.starts_with("x") {
-            x_bit.push(init_gate.init_state.unwrap())
-        } else if init_gate.name.starts_with("y") {
-            y_bit.push(init_gate.init_state.unwrap())
+    for (name, gate) in state.iter().sorted_by(|a, b| a.0.cmp(b.0)) {
+        if name.starts_with("x") {
+            x_bit.push(gate.init_state.unwrap())
+        } else if name.starts_with("y") {
+            y_bit.push(gate.init_state.unwrap())
         }
-
-        state.insert(init_gate.name.clone(), init_gate);
     }
 
     let x = x_bit.iter().enumerate().fold(0, |acc, (idx, b)| {
@@ -159,9 +158,6 @@ fn main() -> std::io::Result<()> {
         }
         acc
     });
-
-    // let mut n_state = swap_gates(state.clone(), &"z05".to_string(), &"z00".to_string());
-    // n_state = swap_gates(n_state.clone(), &"z01".to_string(), &"z02".to_string());
 
     let result_vec = to_bool_vec(x + y, &x_bit.len());
     let computed_vec = compute(state.clone());
@@ -180,119 +176,64 @@ fn main() -> std::io::Result<()> {
         .map(|b| (if *b { "1" } else { "0" }).to_string())
         .join("");
 
+    let computed_number = computed_vec
+        .iter()
+        .enumerate()
+        .map(|(idx, b)| {
+            if *b {
+                return 2u64.pow(idx as u32);
+            }
+            0
+        })
+        .sum::<u64>();
+
     let computed = computed_vec
         .iter()
         .map(|b| (if *b { "1" } else { "0" }).to_string())
         .join("");
 
-    println!(
-        "init numbers: {x}({x_repr}) + {y}({y_repr}) == {}\n\tExpecting: {}",
-        x + y,
-        expected
-    );
-    println!("\tcomputed : {computed}");
+    if computed != expected {
+        println!(
+            "Init numbers: {x}({x_repr}) + {y}({y_repr}) == {} (==? {computed_number})\n\tExpecting: {}",
+            x + y,
+            expected
+        );
 
-    let mut gates_name = HashSet::new();
-    for gate in gates {
-        gates_name.insert(gate.name.clone());
-        // state.insert(gate.name.clone(), gate);
+        println!("\tComputed : {computed}");
+        // println!("{}", to_mermaid(state, get_critical_path(state, "z36")));
+        // assert!(false);
     }
-
-    let errors = computed_vec
-        .iter()
-        .zip(&result_vec)
-        .enumerate()
-        .filter(|(_, (a, b))| *a != *b)
-        .map(|(idx, _)| format!("z{:0>2}", idx))
-        .sorted()
-        .collect_vec();
-    let okays = computed_vec
-        .iter()
-        .zip(&result_vec)
-        .enumerate()
-        .filter(|(_, (a, b))| *a == *b)
-        .map(|(idx, _)| format!("z{:0>2}", idx))
-        .sorted()
-        .collect::<HashSet<_>>();
-
-    // let all_int = errors
-    //     .iter()
-    //     .map(|k| {
-    //         gate_action_plan(&state, &state.get(k).unwrap())
-    //             .iter()
-    //             .map(|g| g.name.clone())
-    //             .collect::<HashSet<_>>()
-    //     })
-    //     .fold(HashSet::new(), |acc, ap| {
-    //         if acc.is_empty() {
-    //             return ap;
-    //         }
-
-    //         acc.union(&ap).cloned().collect::<HashSet<_>>()
-    //     });
-
-    backtrack_gate(&state, "z24", true);
-
-    println!("error: {errors:?}");
-
-    // all_int
-    //     .difference(&okays)
-    //     .inspect(|e| println!("diff: {e:?}"))
-    //     .clone()
-    //     .into_iter()
-    //     .combinations(8)
-    //     // .par_bridge()
-    //     .map(|outer| {
-    //         outer
-    //             .iter()
-    //             .permutations(8)
-    //             .map(|v| {
-    //                 let (g1, g2, g3, g4, g5, g6, g7, g8) = v.iter().collect_tuple().unwrap();
-    //                 println!(
-    //                     "{} - {} - {} - {} - {} - {} - {} - {}",
-    //                     g1, g2, g3, g4, g5, g6, g7, g8
-    //                 );
-    //                 let mut nstate = state.clone();
-
-    //                 nstate = swap_gates(nstate, g1, g2);
-    //                 nstate = swap_gates(nstate, g3, g4);
-    //                 nstate = swap_gates(nstate, g5, g6);
-    //                 nstate = swap_gates(nstate, g7, g8);
-
-    //                 let computed = compute(nstate);
-    //                 let as_str = computed
-    //                     .iter()
-    //                     .map(|b| (if *b { "1" } else { "0" }).to_string())
-    //                     .join("");
-
-    //                 println!("Computed: {as_str}");
-    //                 println!("Expected: {expected}");
-
-    //                 assert!(as_str != expected);
-    //             })
-    //             .for_each(|_| {})
-    //     })
-    //     .for_each(|_| {});
-
-    let mut final_gates = state.keys().filter(|k| k.starts_with("z")).collect_vec();
-    final_gates.sort();
-
-    Ok(())
 }
 
 fn backtrack_gate(state: &HashMap<String, Gate>, gate: &str, expected: bool) {
-    let action_plan = gate_action_plan(state, state.get(gate).unwrap());
+    let action_plan = get_critical_path(state, gate)
+        .into_iter()
+        .chain(get_critical_path(state, "z00"))
+        .chain(once(state.get(gate).unwrap().clone()))
+        .chain(once(state.get("z00").unwrap().clone()))
+        .collect_vec();
+
+    println!(
+        "plan: {}",
+        action_plan.iter().map(|g| g.name.clone()).join(",")
+    );
+    let before_as_str = compute(state.clone())
+        .iter()
+        .map(|b| (if *b { "1" } else { "0" }).to_string())
+        .join("");
 
     action_plan
         .iter()
-        .filter(|g| !g.name.starts_with("x") && !g.name.starts_with("y"))
         .combinations(2)
         .map(|v| {
             let (g1, g2) = v.iter().collect_tuple().unwrap();
-            // println!("swap: {} with {}", g1.name, g2.name);
+            println!("swap: {} {}", g1.name, g2.name);
 
             let mut new_state = state.clone();
             new_state = swap_gates(new_state, &g1.name, &g2.name);
+            for (k, v) in &new_state {
+                println!("{k} -> {v:?}");
+            }
 
             let as_str = compute(new_state.clone())
                 .iter()
@@ -301,14 +242,27 @@ fn backtrack_gate(state: &HashMap<String, Gate>, gate: &str, expected: bool) {
 
             let gate = new_state.get(gate).unwrap();
 
-            // println!("gate: {gate:?}");
-            // println!("Computed: {as_str}");
-            if eval_gate(&new_state, gate) == expected {
-            }
-
-            //assert!(expected != gate.eval().unwrap());
+            println!("gate: {gate:?}");
+            println!("Computed: {as_str}\n        : {before_as_str}");
+            if eval_gate(&new_state, gate) == expected {}
         })
         .for_each(|_| {});
+}
+
+fn get_critical_path(state: &HashMap<String, Gate>, gate: &str) -> Vec<Gate> {
+    let gate = state.get(gate).unwrap();
+    if gate.init_state.is_some() {
+        return vec![gate.clone()];
+    } else if let (Some(i1), Some(i2)) = &gate.input_gates {
+        return get_critical_path(state, i1)
+            .iter()
+            .chain(get_critical_path(state, i2).iter())
+            .chain(once(gate))
+            .cloned()
+            .collect_vec();
+    }
+
+    unreachable!()
 }
 
 fn to_bool_vec(mut number: u64, target_size: &usize) -> Vec<bool> {
@@ -320,16 +274,17 @@ fn to_bool_vec(mut number: u64, target_size: &usize) -> Vec<bool> {
     }
 
     if r.len() < *target_size {
-        r = repeat(false)
-            .take(target_size - r.len())
-            .chain(r)
+        r = r
+            .iter()
+            .chain(repeat(&false).take(target_size - r.len() + 1))
+            .cloned()
             .collect_vec();
     }
 
     r
 }
 
-fn swap_gates(state: HashMap<String, Gate>, g1: &String, g2: &String) -> HashMap<String, Gate> {
+fn swap_gates(state: HashMap<String, Gate>, g1: &str, g2: &str) -> HashMap<String, Gate> {
     let mut result = state.clone();
     let mut g1 = state.get(g1).unwrap().clone();
     let mut g2 = state.get(g2).unwrap().clone();
@@ -360,8 +315,8 @@ fn swap_gates(state: HashMap<String, Gate>, g1: &String, g2: &String) -> HashMap
     // g2.op = tmp.op;
     // g2.input = tmp.input;
 
-    result.insert(g1.name.clone(), g2.clone());
-    result.insert(g2.name.clone(), g1.clone());
+    result.insert(g2.name.clone(), g2.clone());
+    result.insert(g1.name.clone(), g1.clone());
 
     result
 }
@@ -372,9 +327,7 @@ fn compute(state: HashMap<String, Gate>) -> Vec<bool> {
 
     final_gates
         .iter()
-        .map(|gate| {
-            eval_gate(&state, state.get(*gate).unwrap())
-        })
+        .map(|gate| eval_gate(&state, state.get(*gate).unwrap()))
         .collect_vec()
 }
 
@@ -417,37 +370,11 @@ digraph G {{
     {red}
     {shapes}
     {result}
-}};
+}}
 "
     );
 
     result
-}
-
-fn execute_action_plan_(
-    states: HashMap<String, Gate>,
-    execution_plan: &Vec<Gate>,
-) -> HashMap<String, Gate> {
-    let mut resulting_state = states.clone();
-
-    for gate in execution_plan {
-        if let (Some(i1), Some(i2)) = &gate.input_gates {
-            let (g1, g2) = (
-                resulting_state.get(i1).unwrap().clone(),
-                resulting_state.get(i2).unwrap().clone(),
-            );
-            // println!("compute for {:?}:\n\t{g1:?}\n\t{g2:?}", gate.name);
-
-            let mut_gate = resulting_state.get_mut(&gate.name).unwrap();
-            mut_gate.input = (
-                Some(g1.eval().expect(&format!("fails: {:?}", g1))),
-                Some(g2.eval().expect(&format!("fails: {:?}", g2))),
-            );
-            // println!("\tcomputed {gate:?}");
-        } else if let Some(init) = &gate.init_state {
-        }
-    }
-    resulting_state
 }
 
 fn eval_gate(states: &HashMap<String, Gate>, gate: &Gate) -> bool {
@@ -471,35 +398,4 @@ fn eval_gate(states: &HashMap<String, Gate>, gate: &Gate) -> bool {
         };
     }
     unreachable!()
-}
-
-fn gate_action_plan_(states: &HashMap<String, Gate>, entry_gate: &Gate) -> Vec<Gate> {
-    let mut fifo = VecDeque::new();
-    let mut seen = HashSet::new();
-
-    fifo.push_back(entry_gate);
-
-    let mut result = vec![];
-
-    while let Some(gate) = fifo.pop_front() {
-        if seen.insert(gate.name.clone()) {
-            result.push(gate.clone());
-
-            // println!("unpack gate: {gate:?}");
-            if let Some(_) = gate.init_state {
-                // result.reverse();
-                // return result;
-            } else if let (Some(i1), Some(i2)) = &gate.input_gates {
-                fifo.push_back(states.get(i1).unwrap());
-                fifo.push_back(states.get(i2).unwrap());
-            } else {
-                // Maybe the swap is just not valid
-                // return vec![];
-                unreachable!("gate: {gate:?}")
-            }
-        }
-    }
-
-    result.reverse();
-    result
 }
